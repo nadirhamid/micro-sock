@@ -9,9 +9,11 @@ import (
 	"os"
 	"strings"
 	"time"
+	"encoding/json"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -34,8 +36,14 @@ type config struct {
 	retryInterval time.Duration
 	sendInterval  time.Duration
 }
+type JSONStruct struct {
+	Value1 int `json:"value1"`
+	Value2 int `json:"value2"`
+	Value3 int `json:"value3"`
+}
 
 func main() {
+	log.Infof("Starting server..")
 	log.SetOutput(os.Stderr)
 	prometheus.MustRegister(connectionFailedCounter)
 	prometheus.MustRegister(dataRecievedCounter)
@@ -53,24 +61,26 @@ func main() {
 	flag.DurationVar(&c.retryInterval, "r", 1*time.Second, "connection retry interval")
 	flag.DurationVar(&c.sendInterval, "i", 2*time.Second, "message sending interval")
 	flag.Parse()
-	addrs := flag.Args()
+	log.Infof("will try to listen on %s", laddr)
 
 	if listen {
 		laddr = normalizeAddr(laddr)
-		log.Infof("listening on %s", laddr)
-		ln, err := net.Listen("tcp", laddr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		go accept(ln, c)
+		http.HandleFunc("/test", test)
+		http.Handle("/metrics", promhttp.Handler())
+		log.Fatal(http.ListenAndServe(laddr, nil))
 	}
+}
 
-	for _, addr := range addrs {
-		go send(normalizeAddr(addr), c)
-	}
-
-	http.Handle("/metrics", prometheus.Handler())
-	log.Fatal(http.ListenAndServe(":8081", nil))
+func test(rw http.ResponseWriter, req *http.Request) {
+    //log.Infof("Received JSON body: %s", req.Body)
+    decoder := json.NewDecoder(req.Body)
+    var t JSONStruct
+    err := decoder.Decode(&t)
+    if err != nil {
+        panic(err)
+	return
+    }
+    log.Printf("Value1 = %d, Value2 = %d, Value3 = %d", t.Value1, t.Value2, t.Value3)
 }
 
 func normalizeAddr(addr string) string {
